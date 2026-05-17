@@ -56,20 +56,26 @@ export function printerlogicClient(): AxiosInstance {
   });
 }
 
-export function confluenceClient(): AxiosInstance {
+function makeConfluenceAuth(): { domain: string; headers: Record<string, string> } {
   const domain = process.env["CONFLUENCE_DOMAIN"] ?? "";
   const email = process.env["CONFLUENCE_EMAIL"] ?? "";
   const token = process.env["CONFLUENCE_API_TOKEN"] ?? "";
   const auth = Buffer.from(`${email}:${token}`).toString("base64");
-  return axios.create({
-    baseURL: `https://${domain}.atlassian.net/wiki/api/v2`,
-    timeout: DEFAULT_TIMEOUT_MS,
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-  });
+  return {
+    domain,
+    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json", Accept: "application/json" },
+  };
+}
+
+export function confluenceClient(): AxiosInstance {
+  const { domain, headers } = makeConfluenceAuth();
+  return axios.create({ baseURL: `https://${domain}.atlassian.net/wiki/api/v2`, timeout: DEFAULT_TIMEOUT_MS, headers });
+}
+
+// CQL search lives on the v1 REST API — v2 does not expose a /search endpoint.
+export function confluenceSearchClient(): AxiosInstance {
+  const { domain, headers } = makeConfluenceAuth();
+  return axios.create({ baseURL: `https://${domain}.atlassian.net/wiki/rest/api`, timeout: DEFAULT_TIMEOUT_MS, headers });
 }
 
 export function formatError(err: unknown): string {

@@ -12,12 +12,12 @@ export function registerUnifiCloudTools(server: McpServer, enabled: boolean): vo
     "unifi_list_sites",
     {
       description:
-        "List all UniFi sites across all accounts visible to this API key, including UniFi Fabric sites.",
+        "List all UniFi sites across all accounts visible to this API key, including site name, ID, and host association.",
       inputSchema: z.object({}),
     },
     async () => {
       try {
-        const res = await unifiCloudClient().get("/v1/sites");
+        const res = await unifiCloudClient().get("/ea/sites");
         const raw = res.data as A;
         const items = ((raw["data"] as A[] | undefined) ?? (raw["sites"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
         const sites = items.map((s: A) => ({
@@ -25,7 +25,7 @@ export function registerUnifiCloudTools(server: McpServer, enabled: boolean): vo
           name: s["name"] ?? s["displayName"],
           desc: s["desc"] ?? s["description"],
           hostId: s["hostId"] ?? s["controllerId"],
-          state: s["state"],
+          state: s["state"] ?? s["status"],
           timezone: s["timezone"],
           countryCode: s["countryCode"],
         }));
@@ -66,38 +66,40 @@ export function registerUnifiCloudTools(server: McpServer, enabled: boolean): vo
   );
 
   server.registerTool(
-    "unifi_list_devices",
+    "unifi_list_site_devices",
     {
       description:
-        "List all UniFi devices (access points, switches, gateways) across all managed sites. Optionally filter by host ID or site ID.",
+        "List all managed network devices (APs, switches, gateways) for a UniFi host/console — name, model, MAC, IP, firmware version, and online status. Optionally filter to a specific host using host_id from unifi_list_hosts. Returns all hosts' devices if no host_id given.",
       inputSchema: z.object({
-        host_id: z.string().optional().describe("Filter to devices on this host/console"),
-        site_id: z.string().optional().describe("Filter to devices at this site"),
+        host_id: z.string().optional().describe("The UniFi host/console ID (from unifi_list_hosts). Omit to return devices for all hosts."),
       }),
     },
-    async ({ host_id, site_id }) => {
+    async ({ host_id }) => {
       try {
-        const params = new URLSearchParams();
-        if (host_id) params.set("hostId", host_id);
-        if (site_id) params.set("siteId", site_id);
-        const query = params.toString() ? `?${params}` : "";
-        const res = await unifiCloudClient().get(`/v1/devices${query}`);
+        const res = await unifiCloudClient().get("/ea/devices");
         const raw = res.data as A;
-        const items = ((raw["data"] as A[] | undefined) ?? (raw["devices"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const devices = items.map((d: A) => ({
-          id: d["id"] ?? d["deviceId"],
-          name: d["name"] ?? d["displayName"],
-          mac: d["mac"] ?? d["macAddress"],
-          model: d["model"] ?? d["productLine"],
-          type: d["type"],
-          ip: d["ip"] ?? d["ipAddress"],
-          firmwareVersion: d["firmwareVersion"] ?? d["version"],
-          state: d["state"],
-          hostId: d["hostId"],
-          siteId: d["siteId"],
-          isAdopted: d["isAdopted"],
+        const hostGroups = (raw["data"] as A[] | undefined) ?? [];
+        const filtered = host_id
+          ? hostGroups.filter((h: A) => (h["hostId"] as string | undefined)?.startsWith(host_id))
+          : hostGroups;
+        const result = filtered.map((h: A) => ({
+          hostId: h["hostId"],
+          hostName: h["hostName"],
+          devices: ((h["devices"] as A[] | undefined) ?? []).map((d: A) => ({
+            id: d["id"],
+            name: d["name"],
+            mac: d["mac"],
+            model: d["model"],
+            ip: d["ip"],
+            firmwareVersion: d["version"],
+            firmwareStatus: d["firmwareStatus"],
+            status: d["status"],
+            isConsole: d["isConsole"],
+            startupTime: d["startupTime"],
+          })),
         }));
-        return ok({ count: devices.length, devices });
+        const totalDevices = result.reduce((n, h) => n + h.devices.length, 0);
+        return ok({ hosts: result.length, totalDevices, data: result });
       } catch (e) {
         return err(e);
       }

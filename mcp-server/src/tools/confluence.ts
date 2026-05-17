@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { confluenceClient } from "../utils/http.js";
+import { confluenceClient, confluenceSearchClient } from "../utils/http.js";
 import { ok, err } from "../utils/response.js";
 
 type A = Record<string, unknown>;
@@ -61,7 +61,7 @@ export function registerConfluenceTools(server: McpServer, enabled: boolean): vo
       try {
         const params: Record<string, string | number> = { cql, limit };
         if (cursor) params["cursor"] = cursor;
-        const res = await confluenceClient().get("/search", { params });
+        const res = await confluenceSearchClient().get("/search", { params });
         const raw = res.data as A;
         const resultItems = (raw["results"] as A[] | undefined) ?? (raw["data"] as A[] | undefined) ?? [];
         const pages = resultItems.map((r: A) => {

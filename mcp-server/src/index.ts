@@ -60,7 +60,7 @@ const services = {
   mde: checkEnv("MDE_TENANT_ID", "MDE_CLIENT_ID", "MDE_CLIENT_SECRET"),
   azure: checkEnv("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID"),
   unifiCloud: checkEnv("UNIFI_API_KEY"),
-  unifiController: checkEnv("UNIFI_CONTROLLER_URL", "UNIFI_USERNAME", "UNIFI_PASSWORD"),
+  unifiController: checkEnv("UNIFI_SVH_URL", "UNIFI_SVH_KEY"),
   ninjaone: checkEnv("NINJA_CLIENT_ID", "NINJA_CLIENT_SECRET"),
   wazuh: checkEnv("WAZUH_URL", "WAZUH_USERNAME", "WAZUH_PASSWORD"),
   confluence: checkEnv("CONFLUENCE_DOMAIN", "CONFLUENCE_EMAIL", "CONFLUENCE_API_TOKEN"),

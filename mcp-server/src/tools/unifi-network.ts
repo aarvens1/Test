@@ -5,6 +5,13 @@ import { ok, err } from "../utils/response.js";
 
 type A = Record<string, unknown>;
 
+const CONTROLLER_PARAM = z
+  .string()
+  .describe(
+    "Site controller code: svh, pdx, boi, eug, sea. Warehouse variants: boi_wh, eug_wh, sea_wh. " +
+    "Add more by setting UNIFI_{SITE}_URL and UNIFI_{SITE}_KEY in the SVH OpsMan Bitwarden item."
+  );
+
 export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): void {
   if (!enabled) return;
 
@@ -14,14 +21,14 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
       description:
         "Get overall health of a UniFi site: WAN status, number of active clients, alerts, and subsystem states.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID (e.g. 'default')"),
       }),
     },
-    async ({ site_id }) => {
+    async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient().get(`/api/v2/sites/${site_id}/health`);
+        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/health`);
         const raw = res.data as A;
-        // Health endpoint returns an array of subsystem health objects
         const subsystems = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
         const shaped = subsystems.map((h: A) => ({
           subsystem: h["subsystem"],
@@ -35,7 +42,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           wan_ip: h["wan_ip"] ?? h["wanIp"],
           gw_mac: h["gw_mac"] ?? h["gwMac"],
         }));
-        return ok({ site_id, subsystems: shaped });
+        return ok({ controller, site_id, subsystems: shaped });
       } catch (e) {
         return err(e);
       }
@@ -48,12 +55,13 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
       description:
         "List all networks (VLANs) configured at a UniFi site, including subnet, VLAN ID, and DHCP settings.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID"),
       }),
     },
-    async ({ site_id }) => {
+    async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient().get(`/api/v2/sites/${site_id}/networks`);
+        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/networks`);
         const raw = res.data as A;
         const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
         const networks = items.map((n: A) => ({
@@ -71,7 +79,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           ipv6_enabled: n["ipv6_enabled"],
           is_nat: n["is_nat"],
         }));
-        return ok({ count: networks.length, networks });
+        return ok({ controller, count: networks.length, networks });
       } catch (e) {
         return err(e);
       }
@@ -83,12 +91,13 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
     {
       description: "List all firewall rules configured on a UniFi site.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID"),
       }),
     },
-    async ({ site_id }) => {
+    async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient().get(
+        const res = await createControllerClient(controller).get(
           `/api/v2/sites/${site_id}/firewallrules`
         );
         const raw = res.data as A;
@@ -111,7 +120,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           src_port: r["src_port"],
           logging: r["logging"],
         }));
-        return ok({ count: rules.length, rules });
+        return ok({ controller, count: rules.length, rules });
       } catch (e) {
         return err(e);
       }
@@ -124,12 +133,13 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
       description:
         "List all managed network devices at a UniFi site (access points, switches, gateways) with status, IP, model, and uptime.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID"),
       }),
     },
-    async ({ site_id }) => {
+    async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient().get(`/api/v2/sites/${site_id}/devices`);
+        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/devices`);
         const raw = res.data as A;
         const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
         const devices = items.map((d: A) => ({
@@ -147,7 +157,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           upgradable: d["upgradable"],
           upgrade_to_firmware: d["upgrade_to_firmware"],
         }));
-        return ok({ count: devices.length, devices });
+        return ok({ controller, count: devices.length, devices });
       } catch (e) {
         return err(e);
       }
@@ -160,6 +170,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
       description:
         "List clients connected to a UniFi site, including hostname, IP, MAC, VLAN, and signal strength.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID"),
         active_only: z
           .boolean()
@@ -167,12 +178,12 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           .describe("When true, return only currently connected clients"),
       }),
     },
-    async ({ site_id, active_only }) => {
+    async ({ controller, site_id, active_only }) => {
       try {
         const url = active_only
           ? `/api/v2/sites/${site_id}/clients?active=true`
           : `/api/v2/sites/${site_id}/clients`;
-        const res = await createControllerClient().get(url);
+        const res = await createControllerClient(controller).get(url);
         const raw = res.data as A;
         const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
         const clients = items.map((c: A) => ({
@@ -194,7 +205,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           is_guest: c["is_guest"],
           oui: c["oui"],
         }));
-        return ok({ count: clients.length, clients });
+        return ok({ controller, count: clients.length, clients });
       } catch (e) {
         return err(e);
       }
@@ -208,12 +219,13 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "List all wireless networks (SSIDs) configured at a UniFi site — " +
         "SSID name, security type, VLAN, band steering, and enabled/disabled state.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID"),
       }),
     },
-    async ({ site_id }) => {
+    async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient().get(`/api/v2/sites/${site_id}/wlans`);
+        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/wlans`);
         const raw = res.data as A;
         const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
         const wlans = items.map((w: A) => ({
@@ -233,7 +245,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           pmf_mode: w["pmf_mode"],
           minrate_setting_enabled: w["minrate_setting_enabled"],
         }));
-        return ok({ count: wlans.length, wlans });
+        return ok({ controller, count: wlans.length, wlans });
       } catch (e) {
         return err(e);
       }
@@ -247,12 +259,13 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "List switch port profiles (port configurations) defined at a UniFi site, " +
         "including native VLAN, tagged VLANs, PoE mode, and voice VLAN settings.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID"),
       }),
     },
-    async ({ site_id }) => {
+    async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient().get(
+        const res = await createControllerClient(controller).get(
           `/api/v2/sites/${site_id}/portprofiles`
         );
         const raw = res.data as A;
@@ -272,7 +285,7 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           port_security_enabled: p["port_security_enabled"],
           stp_port_mode: p["stp_port_mode"],
         }));
-        return ok({ count: profiles.length, portProfiles: profiles });
+        return ok({ controller, count: profiles.length, portProfiles: profiles });
       } catch (e) {
         return err(e);
       }
@@ -286,18 +299,19 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "Get the current state of all ports on a specific switch — " +
         "link state, speed, PoE wattage, STP state, traffic counters, and assigned profile.",
       inputSchema: z.object({
+        controller: CONTROLLER_PARAM,
         site_id: z.string().describe("The UniFi site ID"),
         device_mac: z.string().describe("MAC address of the switch (e.g. aa:bb:cc:dd:ee:ff)"),
       }),
     },
-    async ({ site_id, device_mac }) => {
+    async ({ controller, site_id, device_mac }) => {
       try {
-        const res = await createControllerClient().get(
+        const res = await createControllerClient(controller).get(
           `/api/v2/sites/${site_id}/devices/${device_mac.toLowerCase().replace(/:/g, "")}`
         );
         const device = res.data as A;
         const ports = device?.["port_table"] ?? device?.["portTable"] ?? [];
-        return ok({ device_name: device?.["name"], ports });
+        return ok({ controller, device_name: device?.["name"], ports });
       } catch (e) {
         return err(e);
       }
