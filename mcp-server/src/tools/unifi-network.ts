@@ -5,12 +5,25 @@ import { ok, err } from "../utils/response.js";
 
 type A = Record<string, unknown>;
 
+// All tools use the classic UniFi Network API: /proxy/network/api/s/{site_name}/...
+// site_id is the UniFi site name (e.g. "default") — not a UUID.
+
 const CONTROLLER_PARAM = z
   .string()
   .describe(
-    "Site controller code: svh, pdx, boi, eug, sea. Warehouse variants: boi_wh, eug_wh, sea_wh. " +
+    "Site controller code: svh, pdx, boi, eug, sea, fgt. Warehouse variants: boi_wh, eug_wh, sea_wh. " +
     "Add more by setting UNIFI_{SITE}_URL and UNIFI_{SITE}_KEY in the SVH OpsMan Bitwarden item."
   );
+
+const SITE_PARAM = z
+  .string()
+  .default("default")
+  .describe("UniFi site name (e.g. 'default'). Use 'default' for single-site UDMs.");
+
+function classicData(raw: unknown): A[] {
+  const r = raw as A;
+  return (r["data"] as A[] | undefined) ?? (Array.isArray(raw) ? (raw as A[]) : []);
+}
 
 export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): void {
   if (!enabled) return;
@@ -22,27 +35,25 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "Get overall health of a UniFi site: WAN status, number of active clients, alerts, and subsystem states.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID (e.g. 'default')"),
+        site_id: SITE_PARAM,
       }),
     },
     async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/health`);
-        const raw = res.data as A;
-        const subsystems = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const shaped = subsystems.map((h: A) => ({
+        const res = await createControllerClient(controller).get(`/api/s/${site_id}/stat/health`);
+        const subsystems = classicData(res.data).map((h: A) => ({
           subsystem: h["subsystem"],
           status: h["status"],
-          numUser: h["num_user"] ?? h["numUser"],
-          numGuest: h["num_guest"] ?? h["numGuest"],
-          numAp: h["num_ap"] ?? h["numAp"],
-          numSta: h["num_sta"] ?? h["numSta"],
-          txBytesR: h["tx_bytes-r"] ?? h["txBytesR"],
-          rxBytesR: h["rx_bytes-r"] ?? h["rxBytesR"],
-          wan_ip: h["wan_ip"] ?? h["wanIp"],
-          gw_mac: h["gw_mac"] ?? h["gwMac"],
+          numUser: h["num_user"],
+          numGuest: h["num_guest"],
+          numAp: h["num_ap"],
+          numSta: h["num_sta"],
+          txBytesR: h["tx_bytes-r"],
+          rxBytesR: h["rx_bytes-r"],
+          wan_ip: h["wan_ip"],
+          gw_mac: h["gw_mac"],
         }));
-        return ok({ controller, site_id, subsystems: shaped });
+        return ok({ controller, site_id, subsystems });
       } catch (e) {
         return err(e);
       }
@@ -56,16 +67,14 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "List all networks (VLANs) configured at a UniFi site, including subnet, VLAN ID, and DHCP settings.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID"),
+        site_id: SITE_PARAM,
       }),
     },
     async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/networks`);
-        const raw = res.data as A;
-        const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const networks = items.map((n: A) => ({
-          id: n["id"] ?? n["_id"],
+        const res = await createControllerClient(controller).get(`/api/s/${site_id}/rest/networkconf`);
+        const networks = classicData(res.data).map((n: A) => ({
+          id: n["_id"] ?? n["id"],
           name: n["name"],
           purpose: n["purpose"],
           vlan_enabled: n["vlan_enabled"],
@@ -76,7 +85,6 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           dhcpd_stop: n["dhcpd_stop"],
           dhcpd_dns_1: n["dhcpd_dns_1"],
           domain_name: n["domain_name"],
-          ipv6_enabled: n["ipv6_enabled"],
           is_nat: n["is_nat"],
         }));
         return ok({ controller, count: networks.length, networks });
@@ -92,18 +100,14 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
       description: "List all firewall rules configured on a UniFi site.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID"),
+        site_id: SITE_PARAM,
       }),
     },
     async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient(controller).get(
-          `/api/v2/sites/${site_id}/firewallrules`
-        );
-        const raw = res.data as A;
-        const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const rules = items.map((r: A) => ({
-          id: r["id"] ?? r["_id"],
+        const res = await createControllerClient(controller).get(`/api/s/${site_id}/rest/firewallrule`);
+        const rules = classicData(res.data).map((r: A) => ({
+          id: r["_id"] ?? r["id"],
           name: r["name"],
           action: r["action"],
           enabled: r["enabled"],
@@ -131,25 +135,23 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
     "unifi_list_controller_devices",
     {
       description:
-        "List all managed network devices at a UniFi site (access points, switches, gateways) with status, IP, model, and uptime.",
+        "List all managed network devices at a UniFi site (access points, switches, gateways) with status, IP, model, firmware, and uptime.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID"),
+        site_id: SITE_PARAM,
       }),
     },
     async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/devices`);
-        const raw = res.data as A;
-        const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const devices = items.map((d: A) => ({
-          id: d["device_id"] ?? d["_id"] ?? d["id"],
+        const res = await createControllerClient(controller).get(`/api/s/${site_id}/stat/device`);
+        const devices = classicData(res.data).map((d: A) => ({
+          id: d["_id"] ?? d["id"],
           name: d["name"],
           mac: d["mac"],
           model: d["model"],
           type: d["type"],
           ip: d["ip"],
-          state: d["state"],
+          state: d["state"] === 1 ? "ONLINE" : d["state"] === 0 ? "OFFLINE" : d["state"],
           uptime: d["uptime"],
           last_seen: d["last_seen"],
           version: d["version"],
@@ -171,29 +173,26 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "List clients connected to a UniFi site, including hostname, IP, MAC, VLAN, and signal strength.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID"),
+        site_id: SITE_PARAM,
         active_only: z
           .boolean()
           .default(true)
-          .describe("When true, return only currently connected clients"),
+          .describe("When true (default), return only currently connected clients (stat/sta). When false, return all known clients including recently disconnected (stat/alluser)."),
       }),
     },
     async ({ controller, site_id, active_only }) => {
       try {
-        const url = active_only
-          ? `/api/v2/sites/${site_id}/clients?active=true`
-          : `/api/v2/sites/${site_id}/clients`;
-        const res = await createControllerClient(controller).get(url);
-        const raw = res.data as A;
-        const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const clients = items.map((c: A) => ({
-          id: c["id"] ?? c["_id"],
+        const endpoint = active_only ? `/api/s/${site_id}/stat/sta` : `/api/s/${site_id}/stat/alluser`;
+        const res = await createControllerClient(controller).get(endpoint);
+        const clients = classicData(res.data).map((c: A) => ({
+          id: c["_id"] ?? c["id"],
           hostname: c["hostname"] ?? c["name"],
           ip: c["ip"],
           mac: c["mac"],
           vlan: c["vlan"],
           network: c["network"],
           ap_mac: c["ap_mac"],
+          sw_mac: c["sw_mac"],
           essid: c["essid"],
           signal: c["signal"],
           rssi: c["rssi"],
@@ -220,16 +219,14 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "SSID name, security type, VLAN, band steering, and enabled/disabled state.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID"),
+        site_id: SITE_PARAM,
       }),
     },
     async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient(controller).get(`/api/v2/sites/${site_id}/wlans`);
-        const raw = res.data as A;
-        const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const wlans = items.map((w: A) => ({
-          id: w["id"] ?? w["_id"],
+        const res = await createControllerClient(controller).get(`/api/s/${site_id}/rest/wlanconf`);
+        const wlans = classicData(res.data).map((w: A) => ({
+          id: w["_id"] ?? w["id"],
           name: w["name"],
           enabled: w["enabled"],
           security: w["security"],
@@ -237,13 +234,12 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
           wpa_enc: w["wpa_enc"],
           vlan: w["vlan"],
           vlan_enabled: w["vlan_enabled"],
-          usergroup_id: w["usergroup_id"],
           networkconf_id: w["networkconf_id"],
           band_steering: w["band_steering"],
           is_guest: w["is_guest"],
           hide_ssid: w["hide_ssid"],
           pmf_mode: w["pmf_mode"],
-          minrate_setting_enabled: w["minrate_setting_enabled"],
+          usergroup_id: w["usergroup_id"],
         }));
         return ok({ controller, count: wlans.length, wlans });
       } catch (e) {
@@ -256,22 +252,18 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
     "unifi_list_port_profiles",
     {
       description:
-        "List switch port profiles (port configurations) defined at a UniFi site, " +
+        "List switch port profiles defined at a UniFi site, " +
         "including native VLAN, tagged VLANs, PoE mode, and voice VLAN settings.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID"),
+        site_id: SITE_PARAM,
       }),
     },
     async ({ controller, site_id }) => {
       try {
-        const res = await createControllerClient(controller).get(
-          `/api/v2/sites/${site_id}/portprofiles`
-        );
-        const raw = res.data as A;
-        const items = ((raw["data"] as A[] | undefined) ?? (Array.isArray(raw) ? raw as A[] : []));
-        const profiles = items.map((p: A) => ({
-          id: p["id"] ?? p["_id"],
+        const res = await createControllerClient(controller).get(`/api/s/${site_id}/rest/portconf`);
+        const profiles = classicData(res.data).map((p: A) => ({
+          id: p["_id"] ?? p["id"],
           name: p["name"],
           native_networkconf_id: p["native_networkconf_id"],
           tagged_networkconf_ids: p["tagged_networkconf_ids"],
@@ -300,18 +292,19 @@ export function registerUnifiNetworkTools(server: McpServer, enabled: boolean): 
         "link state, speed, PoE wattage, STP state, traffic counters, and assigned profile.",
       inputSchema: z.object({
         controller: CONTROLLER_PARAM,
-        site_id: z.string().describe("The UniFi site ID"),
+        site_id: SITE_PARAM,
         device_mac: z.string().describe("MAC address of the switch (e.g. aa:bb:cc:dd:ee:ff)"),
       }),
     },
     async ({ controller, site_id, device_mac }) => {
       try {
-        const res = await createControllerClient(controller).get(
-          `/api/v2/sites/${site_id}/devices/${device_mac.toLowerCase().replace(/:/g, "")}`
-        );
-        const device = res.data as A;
-        const ports = device?.["port_table"] ?? device?.["portTable"] ?? [];
-        return ok({ controller, device_name: device?.["name"], ports });
+        const mac = device_mac.toLowerCase().replace(/[^0-9a-f]/g, "");
+        const res = await createControllerClient(controller).get(`/api/s/${site_id}/stat/device/${mac}`);
+        const items = classicData(res.data);
+        const device = items[0] as A | undefined;
+        if (!device) return err(new Error(`Device ${device_mac} not found`));
+        const ports = (device["port_table"] as A[] | undefined) ?? [];
+        return ok({ controller, device_name: device["name"], mac: device["mac"], ports });
       } catch (e) {
         return err(e);
       }
